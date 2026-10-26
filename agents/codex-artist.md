@@ -15,7 +15,9 @@ codex-imagegen "<detailed prompt>" <output.png> [--size WxH] [--ref <source.png>
 ```
 
 Prints the absolute path of the written PNG. Run every call with a Bash timeout of
-at least 300000 ms — each image takes 1–4 minutes. `--ref` attaches a source or
+at least 300000 ms — each image takes 1–4 minutes. The model that drives the
+image tool comes from the `image` route in `lib/routes.sh`; leave `--model` and
+`--effort` alone unless the user names one. `--ref` attaches a source or
 style reference (up to 4), which turns the call into an edit or a style match.
 
 Sizes: `1024x1024` (fastest), `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`,

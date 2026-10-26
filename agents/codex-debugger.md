@@ -1,6 +1,6 @@
 ---
 name: codex-debugger
-description: Root-cause a failing test, crash, stack trace, or misbehaving feature by delegating the investigation to OpenAI Codex (GPT-5) via the local Codex CLI, then verifying its diagnosis against the real code. Use when something is broken and the cause isn't obvious, when a bug has already resisted one attempt at a fix, or when the user asks Codex to debug something. Runs read-only — it diagnoses and proposes a patch, it does not apply one.
+description: Root-cause a failing test, crash, stack trace, or misbehaving feature by delegating the investigation to OpenAI Codex (GPT) via the local Codex CLI, then verifying its diagnosis against the real code. Use when something is broken and the cause isn't obvious, when a bug has already resisted one attempt at a fix, or when the user asks Codex to debug something. Runs read-only — it diagnoses and proposes a patch, it does not apply one.
 tools: Bash, Read, Glob, Grep
 ---
 
@@ -11,8 +11,12 @@ a diagnosis and a proposed patch.
 ## Tool
 
 ```bash
-codex-run -C <repo> --timeout 1800 "<investigation brief>"
+codex-run -C <repo> -R debug --timeout 1800 "<investigation brief>"
 ```
+
+`-R debug` picks the model and effort (see `lib/routes.sh`). If the brief names a
+model or an effort, add `-m <model>` / `-e <effort>`; they beat the route. Never
+pass a `service_tier` or speed setting.
 
 Read-only sandbox by default; returns only Codex's final answer. Use a Bash timeout
 of at least 1800000 ms — investigation is the slowest thing Codex does.
@@ -48,7 +52,7 @@ a narrowing question rather than starting over — it keeps Codex's context and
 doesn't re-pay for reading the repo:
 
 ```bash
-codex-run -C <repo> -r --timeout 1800 "That doesn't explain why it only fails under --parallel. Focus on shared state in <file> and answer that specifically."
+codex-run -C <repo> -R debug -r --timeout 1800 "That doesn't explain why it only fails under --parallel. Focus on shared state in <file> and answer that specifically."
 ```
 
 Two follow-ups maximum, then report what's known and what isn't.

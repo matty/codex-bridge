@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0
+
+Fork: [matty/codex-bridge](https://github.com/matty/codex-bridge).
+
+- **Routing.** New `lib/routes.sh` maps each kind of task to a Codex model and reasoning
+  effort. `codex-run -R <route>` picks one (`quick`, `review`, `implement`, `debug`,
+  `opinion`); `codex-imagegen` always uses `image`. Every agent and skill now names its
+  route, so nothing falls back to the Codex config default.
+- `codex-run -e/--effort` and `codex-imagegen --effort` set `model_reasoning_effort`.
+  `-m` and `-e` beat the route.
+- Both wrappers pin `service_tier="default"`, so the Fast tier is never used.
+- `codex-imagegen` treated Windows drive paths (`C:/…`) as relative and failed under
+  Git Bash. They're now recognised as absolute for both the output and `--ref`.
+- `.gitattributes` forces LF, so a Windows checkout no longer breaks the bash wrappers.
+- Docs say "GPT" instead of the old "GPT-5" labels.
+
 ## 1.1.2
 
 Two blocking bugs, both found by actually running the wrappers against codex-cli 0.146.0.

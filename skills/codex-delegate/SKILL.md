@@ -1,5 +1,5 @@
 ---
-description: Offer to hand heavy work to Codex (GPT-5) as a subagent so it runs on the ChatGPT plan quota instead of burning Claude context and tokens. Use at the START of any task that is large, repetitive, or asset-producing — bulk refactors across many files, generating boilerplate or fixtures, exhaustive repo-wide audits, writing many similar tests, and anything needing mockups or images. Also use whenever the user says "save tokens", "use codex", "delegate this", or "who should do this".
+description: Offer to hand heavy work to Codex (GPT) as a subagent so it runs on the ChatGPT plan quota instead of burning Claude context and tokens. Use at the START of any task that is large, repetitive, or asset-producing — bulk refactors across many files, generating boilerplate or fixtures, exhaustive repo-wide audits, writing many similar tests, and anything needing mockups or images. Also use whenever the user says "save tokens", "use codex", "delegate this", or "who should do this".
 ---
 
 # Delegate to Codex when it saves the user tokens
@@ -58,11 +58,46 @@ verify.**
    - `codex-reviewer` subagent — for review of a diff or module
    - `codex-debugger` subagent — for root-causing a failure
    - `codex-artist` subagent — for images, icons, mockups
-   - `codex-run "<task>"` in Bash — for a single quick question, no subagent needed
+   - `codex-run -R quick "<task>"` in Bash — for a single quick question, no subagent needed
 4. **Verify what comes back.** Read the diff, run the tests, spot-check the images.
    Never forward Codex's claim of success without checking. This is the part that
    makes delegation safe, and it's why you don't delegate judgment.
-5. **Report the split.** Tell the user what Codex did and what you checked.
+5. **Report the split.** Tell the user what Codex did and what you checked,
+   including the model and effort it ran on.
+
+## Routing: which model and effort
+
+Every Codex call picks a model and a reasoning effort. Don't let it fall back to
+the Codex config default, which may be the most expensive model at a high effort.
+Name a route with `-R`; the table lives in `lib/routes.sh` and is the one place
+to change it:
+
+| Route | Model | Effort | Used by |
+| :-- | :-- | :-- | :-- |
+| `quick` | `gpt-6-luna` | medium | `ask-codex`, lookups, one-line questions |
+| `review` | `gpt-6.1-sol` | high | `codex-reviewer`, `codex-review` |
+| `implement` | `gpt-6.1-terra` | medium | `codex-implementer` (500k context) |
+| `debug` | `gpt-6-astra` | xhigh | `codex-debugger` |
+| `opinion` | `gpt-6-astra` | high | `codex-second-opinion` |
+| `image` | `gpt-6-luna` | low | `codex-imagegen` (only drives gpt-image-2) |
+
+Adjust per task, not per habit:
+
+- **Step up** one effort level (or to `-R debug`) when a task has already resisted
+  one attempt, or spans subtle cross-file reasoning.
+- **Step down** (`-e low`, or `-R quick`) for mechanical, well-specified work.
+- **The user's words win.** If they name a model or an effort, pass it with `-m`
+  / `-e`; both beat the route. When you're briefing a subagent, put the model
+  and effort in the brief so it passes them through.
+- **`ultra` only on request.** It lets Codex spawn its own subagents and spends
+  quota fast.
+- **Never the Fast tier.** The wrappers pin `service_tier="default"`; never pass
+  a `service_tier` or speed setting of your own.
+- Keep the same route for a `-r` follow-up, so the session doesn't switch model.
+
+Valid efforts: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. The model list
+lives in `~/.codex/models_cache.json` (`slug` and `supported_reasoning_levels`);
+check it before routing to a model that isn't in the table.
 
 ## Guardrails
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# codex-run — run a task on OpenAI Codex (GPT-5 family) via the Codex CLI and
+# codex-run — run a task on OpenAI Codex (GPT family) via the Codex CLI and
 # print ONLY Codex's final answer on stdout. Uses your existing `codex login`
 # (ChatGPT plan); no OPENAI_API_KEY required.
 #
@@ -11,7 +11,10 @@
 #   -C, --cd <dir>       Working directory for Codex        (default: cwd)
 #   -s, --sandbox <mode> read-only | workspace-write | danger-full-access
 #                                                            (default: read-only)
-#   -m, --model <name>   Model override, e.g. gpt-5-codex
+#   -R, --route <name>   Pick model + effort from lib/routes.sh:
+#                        quick | review | implement | debug | opinion | image
+#   -m, --model <name>   Model override, e.g. gpt-6.1-sol    (beats --route)
+#   -e, --effort <lvl>   low | medium | high | xhigh | max | ultra (beats --route)
 #   -r, --resume         Continue the previous codex session instead of a new one
 #       --schema <file>  Constrain the final answer to a JSON Schema file
 #       --raw            Also emit Codex's full event log to stderr
@@ -24,14 +27,19 @@ set -uo pipefail
 
 err() { printf 'codex-run: %s\n' "$*" >&2; }
 
+# shellcheck source=../lib/routes.sh
+. "$(cd "$(dirname "$0")/../lib" && pwd)/routes.sh"
+
 usage() {
-  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
 WORKDIR="$(pwd)"
 SANDBOX="read-only"
 MODEL=""
+EFFORT=""
+ROUTE=""
 RESUME=0
 SCHEMA=""
 RAW=0
@@ -42,7 +50,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -C|--cd)       WORKDIR="${2:-}"; shift 2 ;;
     -s|--sandbox)  SANDBOX="${2:-}"; shift 2 ;;
+    -R|--route)    ROUTE="${2:-}"; shift 2 ;;
     -m|--model)    MODEL="${2:-}"; shift 2 ;;
+    -e|--effort)   EFFORT="${2:-}"; shift 2 ;;
     -r|--resume)   RESUME=1; shift ;;
     --schema)      SCHEMA="${2:-}"; shift 2 ;;
     --raw)         RAW=1; shift ;;
@@ -60,6 +70,18 @@ case "$SANDBOX" in
   read-only|workspace-write|danger-full-access) : ;;
   *) err "invalid sandbox '$SANDBOX' (read-only | workspace-write | danger-full-access)"; exit 1 ;;
 esac
+
+if [ -n "$ROUTE" ]; then
+  if ! ROUTED="$(route_lookup "$ROUTE")"; then
+    err "unknown route '$ROUTE' ($ROUTE_NAMES)"; exit 1
+  fi
+  [ -n "$MODEL" ]  || MODEL="${ROUTED% *}"
+  [ -n "$EFFORT" ] || EFFORT="${ROUTED#* }"
+fi
+
+if [ -n "$EFFORT" ] && ! valid_effort "$EFFORT"; then
+  err "invalid effort '$EFFORT' ($EFFORTS)"; exit 1
+fi
 
 # --- Preconditions -----------------------------------------------------------
 if ! command -v codex >/dev/null 2>&1; then
@@ -92,7 +114,9 @@ trap cleanup EXIT
 CMD=(codex exec)
 [ "$RESUME" -eq 1 ] && CMD+=(resume --last)
 CMD+=(-C "$WORKDIR" -s "$SANDBOX" --skip-git-repo-check -o "$ANSWER_FILE")
+CMD+=("${SERVICE_TIER_ARGS[@]}")
 [ -n "$MODEL" ]  && CMD+=(-m "$MODEL")
+[ -n "$EFFORT" ] && CMD+=(-c "model_reasoning_effort=\"$EFFORT\"")
 [ -n "$SCHEMA" ] && CMD+=(--output-schema "$SCHEMA")
 # `--` so a task that starts with a dash is never parsed as a codex flag.
 CMD+=(-- "$TASK")

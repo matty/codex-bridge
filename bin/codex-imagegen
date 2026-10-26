@@ -11,7 +11,9 @@
 #                     16, ratio <= 3:1, total pixels 655,360-8,294,400.
 #   --ref <file>      Source/reference image. Repeatable (max 4). Passing a --ref
 #                     turns this into an EDIT: describe the change in the prompt.
-#   --model <name>    Model override passed to codex
+#   --model <name>    Model that drives the image tool (default: the 'image'
+#                     route in lib/routes.sh)
+#   --effort <lvl>    Reasoning effort for that model (default: the 'image' route)
 #   --timeout <sec>   Abort after N seconds (default: 600)
 #
 # Examples:
@@ -26,11 +28,14 @@ set -uo pipefail
 
 err() { printf 'codex-imagegen: %s\n' "$*" >&2; }
 
+# shellcheck source=../lib/routes.sh
+. "$(cd "$(dirname "$0")/../lib" && pwd)/routes.sh"
+
 # mtime <file> — GNU stat first (Linux), BSD stat fallback (macOS)
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -40,6 +45,7 @@ PROMPT="$1"; shift
 OUTPUT="$1"; shift
 SIZE=""
 MODEL=""
+EFFORT=""
 TIMEOUT=600
 REFS=()
 
@@ -47,12 +53,20 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --size)    SIZE="${2:-}"; shift 2 ;;
     --model)   MODEL="${2:-}"; shift 2 ;;
+    --effort)  EFFORT="${2:-}"; shift 2 ;;
     --timeout) TIMEOUT="${2:-}"; shift 2 ;;
     --ref)     REFS+=("${2:-}"); shift 2 ;;
     -h|--help) usage ;;
     *) err "unknown argument: $1"; usage ;;
   esac
 done
+
+ROUTED="$(route_lookup image)"
+[ -n "$MODEL" ]  || MODEL="${ROUTED% *}"
+[ -n "$EFFORT" ] || EFFORT="${ROUTED#* }"
+if ! valid_effort "$EFFORT"; then
+  err "invalid effort '$EFFORT' ($EFFORTS)"; exit 1
+fi
 
 [ -n "$PROMPT" ] || { err "prompt is empty"; exit 1; }
 [ -n "$OUTPUT" ] || { err "output path is empty"; exit 1; }
@@ -83,7 +97,7 @@ done
 
 # --- Resolve output path -----------------------------------------------------
 case "$OUTPUT" in
-  /*) : ;;
+  /*|[A-Za-z]:[/\\]*) : ;;   # POSIX or Windows drive path (Git Bash)
   *)  OUTPUT="$(pwd)/$OUTPUT" ;;
 esac
 
@@ -108,10 +122,10 @@ if [ -n "$SIZE" ]; then
 fi
 
 CMD=(codex exec -C "$OUTDIR" -s workspace-write --skip-git-repo-check)
-[ -n "$MODEL" ] && CMD+=(-m "$MODEL")
+CMD+=("${SERVICE_TIER_ARGS[@]}" -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"")
 for r in "${REFS[@]:-}"; do
   [ -n "$r" ] || continue
-  case "$r" in /*) ABS="$r" ;; *) ABS="$(cd "$(dirname "$r")" && pwd)/$(basename "$r")" ;; esac
+  case "$r" in /*|[A-Za-z]:[/\\]*) ABS="$r" ;; *) ABS="$(cd "$(dirname "$r")" && pwd)/$(basename "$r")" ;; esac
   CMD+=(-i "$ABS")
 done
 # `--` is required, not cosmetic: codex's `-i/--image <FILE>...` is variadic, so

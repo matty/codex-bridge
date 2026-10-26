@@ -1,5 +1,5 @@
 ---
-description: Get an independent code review from OpenAI Codex (GPT-5) on uncommitted changes, a branch diff, a PR, or a specific module — returns findings grouped by severity with file:line references. Use when the user says "review this", "review my changes", "check this PR", "what did I miss", or before they commit or merge something substantial.
+description: Get an independent code review from OpenAI Codex (GPT) on uncommitted changes, a branch diff, a PR, or a specific module — returns findings grouped by severity with file:line references. Use when the user says "review this", "review my changes", "check this PR", "what did I miss", or before they commit or merge something substantial.
 ---
 
 # Code review by Codex
@@ -26,13 +26,13 @@ selectively — a giant pasted diff degrades the review.
 Small or medium change — pipe the diff as the prompt body:
 
 ```bash
-{ echo "Review this diff as a senior engineer on this codebase. Report findings grouped by severity (Critical / Major / Minor / Nit). For each: file:line, what's wrong, and the concrete fix. Focus on correctness, security, error handling, race conditions, and missed edge cases. Skip style unless it hides a bug. If you find nothing at a severity level, say so rather than inventing findings."; echo; git -C <repo> diff main...HEAD; } | codex-run -C <repo> --timeout 1200 -
+{ echo "Review this diff as a senior engineer on this codebase. Report findings grouped by severity (Critical / Major / Minor / Nit). For each: file:line, what's wrong, and the concrete fix. Focus on correctness, security, error handling, race conditions, and missed edge cases. Skip style unless it hides a bug. If you find nothing at a severity level, say so rather than inventing findings."; echo; git -C <repo> diff main...HEAD; } | codex-run -C <repo> -R review --timeout 1200 -
 ```
 
 Large change or a whole module — let Codex read the tree itself:
 
 ```bash
-codex-run -C <repo> --timeout 1800 \
+codex-run -C <repo> -R review --timeout 1800 \
   "Review the changes on this branch versus main (run git diff main...HEAD yourself, and read the surrounding files for context). Report findings grouped by severity (Critical/Major/Minor/Nit) with file:line and a concrete fix for each. Prioritise correctness, security, error handling, and missed edge cases."
 ```
 

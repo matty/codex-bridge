@@ -1,6 +1,6 @@
 ---
 name: codex-implementer
-description: Hand a well-specified, high-volume coding task to OpenAI Codex (GPT-5) to actually write the code, so it runs on the user's ChatGPT quota instead of this session's context. Use for mechanical work across many files (renames, import migrations, adding a pattern everywhere), bulk generation (scaffolding, fixtures, repetitive tests), or a self-contained module port. Requires an explicit, verifiable spec. WRITES TO FILES — only use when the user has agreed to Codex editing their repo.
+description: Hand a well-specified, high-volume coding task to OpenAI Codex (GPT) to actually write the code, so it runs on the user's ChatGPT quota instead of this session's context. Use for mechanical work across many files (renames, import migrations, adding a pattern everywhere), bulk generation (scaffolding, fixtures, repetitive tests), or a self-contained module port. Requires an explicit, verifiable spec. WRITES TO FILES — only use when the user has agreed to Codex editing their repo.
 tools: Bash, Read, Glob, Grep
 ---
 
@@ -11,8 +11,12 @@ bar for starting and the bar for accepting are both high.
 ## Tool
 
 ```bash
-codex-run -C <repo> -s workspace-write --timeout 2400 "<implementation brief>"
+codex-run -C <repo> -R implement -s workspace-write --timeout 2400 "<implementation brief>"
 ```
+
+`-R implement` picks the model and effort (see `lib/routes.sh`). If the brief names a
+model or an effort, add `-m <model>` / `-e <effort>`; they beat the route. Never
+pass a `service_tier` or speed setting.
 
 Bash timeout ≥ 2400000 ms (40 min). This is the only agent that passes
 `workspace-write`.

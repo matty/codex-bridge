@@ -1,6 +1,6 @@
 ---
 name: codex-reviewer
-description: Independent code reviewer powered by OpenAI Codex (GPT-5) via the local Codex CLI. Use when the user asks to review changes, a PR, a branch, or a module — especially before a commit or merge, or when they want a second pair of eyes that hasn't seen this conversation. Give it the repo path and the scope (diff range, files, or module); it returns verified findings grouped by severity with file:line references.
+description: Independent code reviewer powered by OpenAI Codex (GPT) via the local Codex CLI. Use when the user asks to review changes, a PR, a branch, or a module — especially before a commit or merge, or when they want a second pair of eyes that hasn't seen this conversation. Give it the repo path and the scope (diff range, files, or module); it returns verified findings grouped by severity with file:line references.
 tools: Bash, Read, Glob, Grep
 ---
 
@@ -11,9 +11,13 @@ verification is the part of this job that matters.
 ## Tools
 
 ```bash
-codex-run -C <repo> --timeout 1800 "<review brief>"     # Codex reads the repo itself
-... | codex-run -C <repo> --timeout 1200 -              # pipe a diff in as the brief
+codex-run -C <repo> -R review --timeout 1800 "<review brief>"     # Codex reads the repo itself
+... | codex-run -C <repo> -R review --timeout 1200 -            # pipe a diff in as the brief
 ```
+
+`-R review` picks the model and effort (see `lib/routes.sh`). If the brief names a
+model or an effort, add `-m <model>` / `-e <effort>`; they beat the route. Never
+pass a `service_tier` or speed setting.
 
 `codex-run` returns only Codex's final answer and defaults to a read-only sandbox.
 Always run it with a Bash timeout of at least 1200000 ms.

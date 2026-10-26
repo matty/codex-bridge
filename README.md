@@ -2,7 +2,7 @@
 
 # codex-bridge
 
-**Give Claude Code image generation and a team of GPT-5 subagents — using the Codex CLI login you already have.**
+**Give Claude Code image generation and a team of GPT subagents — using the Codex CLI login you already have.**
 
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](https://code.claude.com/docs/en/plugins)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -16,7 +16,7 @@ Two things you get:
 
 **1. Claude can produce images.** Ask for an icon, a mockup, a hero image, a full favicon set — Claude writes the prompt, drives gpt-image-2 through Codex, then *looks at the result* and regenerates if it missed.
 
-**2. Claude can delegate to GPT-5.** Four Codex-powered subagents handle review, debugging, bulk implementation, and image work. Claude stays the orchestrator: it scopes the task, Codex does the volume, Claude verifies the result. Heavy work runs on your ChatGPT quota and its intermediate output never enters your Claude context.
+**2. Claude can delegate to GPT.** Four Codex-powered subagents handle review, debugging, bulk implementation, and image work. Claude stays the orchestrator: it scopes the task, Codex does the volume, Claude verifies the result. Heavy work runs on your ChatGPT quota and its intermediate output never enters your Claude context.
 
 <a id="why-no-api-key"></a>
 > **No OpenAI API key.** Everything routes through `codex login`, so it bills against your ChatGPT plan rather than API credits.
@@ -40,7 +40,7 @@ One style contract across a set. Each sibling was generated with an earlier icon
 ## Contents
 
 - [Demo](#demo) · [Install](#install) · [Quickstart](#quickstart) · [What's inside](#whats-inside)
-- [Feature 1 — images](#feature-1--images) · [Feature 2 — GPT-5 subagents](#feature-2--gpt-5-subagents)
+- [Feature 1 — images](#feature-1--images) · [Feature 2 — GPT subagents](#feature-2--gpt-subagents) · [Routing](#routing)
 - [How it works](#how-it-works) · [Limitations](#limitations) · [Troubleshooting](#troubleshooting)
 
 ## Install
@@ -57,7 +57,7 @@ One style contract across a set. Each sibling was generated with an earlier icon
 **Then:**
 
 ```
-/plugin marketplace add Sateezg/codex-bridge
+/plugin marketplace add matty/codex-bridge
 /plugin install codex-bridge@codex-bridge
 ```
 
@@ -69,14 +69,14 @@ Run `/reload-plugins` if Claude Code asks you to.
 Try it for one session, no install:
 
 ```bash
-git clone https://github.com/Sateezg/codex-bridge.git
+git clone https://github.com/matty/codex-bridge.git
 claude --plugin-dir ./codex-bridge
 ```
 
 Auto-load from your skills directory:
 
 ```bash
-git clone https://github.com/Sateezg/codex-bridge.git ~/.claude/skills/codex-bridge
+git clone https://github.com/matty/codex-bridge.git ~/.claude/skills/codex-bridge
 chmod +x ~/.claude/skills/codex-bridge/bin/*
 ```
 
@@ -110,7 +110,7 @@ The last one is the interesting case. Claude notices it's mechanical work across
 | `generate-image` | a task needs a new image that doesn't exist yet |
 | `edit-image` | you point at an image file and ask to change or restyle it |
 | `asset-set` | favicons, app icons, OG cards, or a matching icon family |
-| `ask-codex` | you want GPT-5's take on one question about this repo |
+| `ask-codex` | you want Codex's take on one question about this repo |
 | `codex-review` | "review my changes" — diff, branch, or module |
 | `codex-delegate` | a task is big or repetitive enough that delegating saves you tokens |
 
@@ -143,7 +143,8 @@ codex-imagegen "settings gear, same style as the reference" ./settings.png --ref
 | :-- | :-- |
 | `--size WxH` | `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `3840x2160`, … — see note below |
 | `--ref <file>` | source or style reference, repeatable up to 4 — turns the call into an edit |
-| `--model <name>` | model override |
+| `--model <name>` | model driving the image tool (default: `image` route) |
+| `--effort <level>` | its reasoning effort (default: `image` route) |
 | `--timeout <sec>` | default 600 |
 
 A custom size is only accepted if all of these hold: longest edge ≤ 3840px, both edges multiples of 16, long-to-short ratio ≤ 3:1, total pixels between 655,360 and 8,294,400. Square is fastest. For anything outside that — favicons, a 1200×630 OG card — generate a large master and resample locally.
@@ -152,15 +153,15 @@ The wrapper prints the path it actually wrote. Codex is instructed not to overwr
 
 What makes this better than pasting prompts into a chat window: the skills teach Claude to pull your **actual palette** out of `tailwind.config.*` or your design tokens, to reuse one style contract across a whole set so the assets match, to derive size variants with ImageMagick instead of regenerating, and to **open the PNG and check it** before telling you it's done.
 
-## Feature 2 — GPT-5 subagents
+## Feature 2 — GPT subagents
 
-The point isn't "Claude can also call GPT-5". It's the division of labour: **Claude scopes and verifies, Codex does the volume.**
+The point isn't "Claude can also call GPT". It's the division of labour: **Claude scopes and verifies, Codex does the volume.**
 
 ```
 you ──▶ Claude          scopes the work, writes the brief, reviews the result
              │
              ▼
-        codex-run ──▶ Codex CLI ──▶ GPT-5 / gpt-image-2
+        codex-run ──▶ Codex CLI ──▶ GPT-6 family / gpt-image-2
                                      (your ChatGPT quota)
 ```
 
@@ -182,11 +183,31 @@ git diff main...HEAD | codex-run -C . --timeout 1200 -      # pipe a diff in
 | :-- | :-- |
 | `-C, --cd <dir>` | working directory (default: cwd) |
 | `-s, --sandbox <mode>` | `read-only` (default), `workspace-write`, `danger-full-access` |
-| `-m, --model <name>` | e.g. `gpt-5-codex` |
+| `-R, --route <name>` | model + effort from `lib/routes.sh` — see [Routing](#routing) |
+| `-m, --model <name>` | e.g. `gpt-6.1-sol`; beats `--route` |
+| `-e, --effort <level>` | `low` … `ultra`; beats `--route` |
 | `-r, --resume` | continue the previous session instead of starting fresh |
 | `--schema <file>` | constrain the answer to a JSON Schema |
 | `--raw` | also dump Codex's event log to stderr |
 | `--timeout <sec>` | default 900 |
+
+## Routing
+
+Each task runs on a model and reasoning effort chosen for it, instead of whatever
+your Codex config defaults to. The table is in [`lib/routes.sh`](lib/routes.sh):
+
+| Route | Model | Effort | Used by |
+| :-- | :-- | :-- | :-- |
+| `quick` | `gpt-6-luna` | medium | `ask-codex` |
+| `review` | `gpt-6.1-sol` | high | `codex-reviewer`, `codex-review` |
+| `implement` | `gpt-6.1-terra` | medium | `codex-implementer` |
+| `debug` | `gpt-6-astra` | xhigh | `codex-debugger` |
+| `opinion` | `gpt-6-astra` | high | `codex-second-opinion` |
+| `image` | `gpt-6-luna` | low | `codex-imagegen` |
+
+`-m` and `-e` override a route for one call. Ask for a model or effort in plain
+language ("ask codex on astra at max") and Claude passes it through. Both wrappers
+pin `service_tier="default"`, so the Fast tier is never used.
 
 ## How it works
 

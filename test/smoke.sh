@@ -55,5 +55,27 @@ check "codex-run passes the task after --" \
   "grep -q 'CMD+=(-- \"\\\$TASK\")' '$BIN/codex-run'"
 
 echo
+# Routing — every route resolves, bad routes and efforts are refused before Codex
+# runs, and the Fast tier stays off no matter what config.toml says.
+echo "routing"
+check "routes.sh parses" "bash -n '$BIN/../lib/routes.sh' 2>/dev/null"
+# shellcheck source=../lib/routes.sh
+. "$BIN/../lib/routes.sh"
+for r in $ROUTE_NAMES; do
+  ROUTED="$(route_lookup "$r")"
+  check "route '$r' resolves to a model and a valid effort" \
+    "[ -n '${ROUTED% *}' ] && valid_effort '${ROUTED#* }'"
+done
+# Capture first, as above: the wrappers' intentional exit 1 trips `pipefail`.
+OUT="$("$BIN/codex-run" -R nope x 2>&1)"
+check "unknown route is refused" "printf '%s' \"\$OUT\" | grep -q 'unknown route'"
+OUT="$("$BIN/codex-run" -e fast x 2>&1)"
+check "invalid effort is refused" "printf '%s' \"\$OUT\" | grep -q 'invalid effort'"
+check "both wrappers pin the default service tier" \
+  "grep -q 'SERVICE_TIER_ARGS' '$BIN/codex-run' && grep -q 'SERVICE_TIER_ARGS' '$BIN/codex-imagegen'"
+check "no wrapper asks for the priority tier" \
+  "! grep -q 'service_tier=\"priority\"' '$BIN/codex-run' '$BIN/codex-imagegen' '$BIN/../lib/routes.sh'"
+
+echo
 if [ "$FAIL" -eq 0 ]; then echo "all passed"; else echo "FAILURES"; fi
 exit "$FAIL"

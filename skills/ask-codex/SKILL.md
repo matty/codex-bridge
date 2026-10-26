@@ -1,5 +1,5 @@
 ---
-description: Ask OpenAI Codex (GPT-5) a one-off question about the current repo and get its answer back, without spinning up a subagent. Use when the user says "ask codex", "what does GPT think", "get a second opinion on this", or when you want an independent read on a design call, a tricky bug, or an unfamiliar area of the codebase.
+description: Ask OpenAI Codex (GPT) a one-off question about the current repo and get its answer back, without spinning up a subagent. Use when the user says "ask codex", "what does GPT think", "get a second opinion on this", or when you want an independent read on a design call, a tricky bug, or an unfamiliar area of the codebase.
 ---
 
 # Ask Codex a question
@@ -8,7 +8,7 @@ For a single question with a single answer. Anything multi-step or long-running
 belongs to a subagent (`codex-second-opinion`, `codex-reviewer`, `codex-debugger`).
 
 ```bash
-codex-run -C <repo-dir> "<self-contained question>"
+codex-run -C <repo-dir> -R quick "<self-contained question>"
 ```
 
 `codex-run` prints **only Codex's final answer** on stdout (it captures the final
@@ -25,7 +25,7 @@ Codex has zero knowledge of this conversation. Every question must stand alone:
   line to look at", "answer yes/no then justify in three sentences").
 
 ```bash
-codex-run -C /path/to/repo \
+codex-run -C /path/to/repo -R quick \
   "In src/auth/session.ts, refreshToken() occasionally returns a token that fails validation immediately. I suspect a clock-skew issue in the exp comparison. Read that file plus src/auth/jwt.ts and tell me the single most likely root cause and the exact line. Be concise."
 ```
 
@@ -33,7 +33,9 @@ codex-run -C /path/to/repo \
 
 ```
 -s workspace-write   let Codex modify files (only when the user asked for that)
--m gpt-5-codex       model override
+-R opinion          heavier route for a hard question (see codex-delegate)
+-m <model>          model override, beats the route
+-e <effort>         effort override, beats the route
 -r                   continue the previous codex session (follow-up question)
 --timeout 1800       raise the 900s default for a big repo sweep
 --raw                also print Codex's full event log to stderr, for debugging
@@ -43,7 +45,7 @@ Use `-r` for a genuine follow-up — it keeps Codex's own context and avoids pay
 to re-read the repo:
 
 ```bash
-codex-run -C /path/to/repo -r "Now show me the minimal patch for that."
+codex-run -C /path/to/repo -R quick -r "Now show me the minimal patch for that."
 ```
 
 ## Rules
