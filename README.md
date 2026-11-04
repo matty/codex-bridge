@@ -149,7 +149,7 @@ codex-imagegen "settings gear, same style as the reference" ./settings.png --ref
 
 A custom size is only accepted if all of these hold: longest edge ≤ 3840px, both edges multiples of 16, long-to-short ratio ≤ 3:1, total pixels between 655,360 and 8,294,400. Square is fastest. For anything outside that — favicons, a 1200×630 OG card — generate a large master and resample locally.
 
-The wrapper prints the path it actually wrote. Codex is instructed not to overwrite existing assets, so it occasionally saves `out-v2.png`; the wrapper detects that (and the `~/.codex/generated_images/<session>/` default location) and reports the real path.
+The wrapper writes exactly the path you asked for. Codex saves nothing itself: the wrapper closes stdin, collects the image from `~/.codex/generated_images/<its own session>/` and stops Codex at the first image, so a run can't hang on input, save another run's picture or spend quota on retries. Exit 3 means the image call left out the `--ref`; nothing is saved, so retry once.
 
 What makes this better than pasting prompts into a chat window: the skills teach Claude to pull your **actual palette** out of `tailwind.config.*` or your design tokens, to reuse one style contract across a whole set so the assets match, to derive size variants with ImageMagick instead of regenerating, and to **open the PNG and check it** before telling you it's done.
 
@@ -245,8 +245,7 @@ Both fail fast and loudly: a missing `codex` binary or a logged-out session exit
 | `codex CLI not found on PATH` | install Codex CLI, then reopen your shell |
 | `codex is not logged in` | run `codex login`; confirm with `codex login status` |
 | `Operation not permitted` from codex | ownership on `~/.codex` — `sudo chown -R $(whoami) ~/.codex` |
-| Got `out-v2.png` instead of `out.png` | expected — Codex won't overwrite; use the path the wrapper printed |
-| Image lands somewhere unexpected | the wrapper also checks `$CODEX_HOME/generated_images/<session>/`; pass an absolute output path |
+| Exit 3 from `codex-imagegen` | the image call left out the `--ref` and nothing was saved; retry once |
 | `failed to load models cache: missing field base_instructions` | harmless Codex cache warning; clear it with `rm -rf ~/.codex/cache` if it persists |
 | Codex output full of MCP/hook errors | your Codex config, not this plugin — the wrapper ignores them. Prune unused MCP servers in `~/.codex/config.toml` to speed runs up |
 | Skills don't show up | `/reload-plugins`, then `/help` → Custom commands |

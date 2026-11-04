@@ -15,6 +15,7 @@
 #                     route in lib/routes.sh)
 #   --effort <lvl>    Reasoning effort for that model (default: the 'image' route)
 #   --timeout <sec>   Abort after N seconds (default: 600)
+#   --start-timeout <sec>  Abort if Codex opens no session in N seconds (default: 60)
 #
 # Examples:
 #   codex-imagegen "flat vector rocket icon, blue #2563EB, minimal" ./rocket.png
@@ -22,7 +23,8 @@
 #       ./out.png --ref ./original.png
 #
 # Output: absolute path of the written PNG on stdout.
-# Exit:   0 ok | 1 usage/precondition | 2 generation failed | 124 timed out.
+# Exit:   0 ok | 1 usage/precondition | 2 generation failed
+#         3 the image call left out the reference, nothing saved | 124 timed out.
 
 set -uo pipefail
 
@@ -35,8 +37,15 @@ err() { printf 'codex-imagegen: %s\n' "$*" >&2; }
 mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
 
 usage() {
-  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
+}
+
+# abspath <file> — absolute path with the directory normalised, so two spellings
+# of one file compare equal. Backslashes become slashes for Git Bash.
+abspath() {
+  local p="${1//\\//}"
+  printf '%s/%s\n' "$(cd "$(dirname "$p")" && pwd)" "$(basename "$p")"
 }
 
 [ $# -ge 2 ] || usage
@@ -47,6 +56,7 @@ SIZE=""
 MODEL=""
 EFFORT=""
 TIMEOUT=600
+START_TIMEOUT=60
 REFS=()
 
 while [ $# -gt 0 ]; do
@@ -55,6 +65,7 @@ while [ $# -gt 0 ]; do
     --model)   MODEL="${2:-}"; shift 2 ;;
     --effort)  EFFORT="${2:-}"; shift 2 ;;
     --timeout) TIMEOUT="${2:-}"; shift 2 ;;
+    --start-timeout) START_TIMEOUT="${2:-}"; shift 2 ;;
     --ref)     REFS+=("${2:-}"); shift 2 ;;
     -h|--help) usage ;;
     *) err "unknown argument: $1"; usage ;;
@@ -87,45 +98,58 @@ if ! codex login status >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- Resolve paths -----------------------------------------------------------
+OUTPUT="${OUTPUT//\\//}"
+OUTDIR="$(dirname "$OUTPUT")"
+BASENAME="$(basename "$OUTPUT")"
+mkdir -p "$OUTDIR" || { err "cannot create output folder: $OUTDIR"; exit 1; }
+OUTPUT="$(abspath "$OUTPUT")"
+
+ABS_REFS=()
 for r in "${REFS[@]:-}"; do
   [ -n "$r" ] || continue
   if [ ! -f "$r" ]; then
     err "reference image not found: $r"
     exit 1
   fi
+  ABS="$(abspath "$r")"
+  if [ "$ABS" = "$OUTPUT" ]; then
+    err "output would overwrite its own reference: $r"
+    exit 1
+  fi
+  ABS_REFS+=("$ABS")
 done
-
-# --- Resolve output path -----------------------------------------------------
-case "$OUTPUT" in
-  /*|[A-Za-z]:[/\\]*) : ;;   # POSIX or Windows drive path (Git Bash)
-  *)  OUTPUT="$(pwd)/$OUTPUT" ;;
-esac
-
-OUTDIR="$(dirname "$OUTPUT")"
-BASENAME="$(basename "$OUTPUT")"
-mkdir -p "$OUTDIR"
-OUTDIR="$(cd "$OUTDIR" && pwd)"   # normalize (collapse ./ and symlinked segments)
-OUTPUT="$OUTDIR/$BASENAME"
+N_REFS="${#ABS_REFS[@]}"
 
 # --- Build the instruction for Codex -----------------------------------------
 # Note: \$imagegen must reach Codex literally — it names Codex's built-in
 # image-generation skill.
-SAVE_RULE="Save the final image to the exact path ./${BASENAME} in the current working directory. I explicitly authorize replacing any existing file at that path, so overwrite it in place - do NOT create a versioned sibling filename such as ${BASENAME%.*}-v2.${BASENAME##*.}. Do nothing else: no code changes, no extra files, no questions, no commentary."
+#
+# Codex must not save anything. Told to save, it searched the shared
+# generated_images folder, took the newest file and copied another run's picture,
+# or could not work out how to save and generated again (up to 7 images for one
+# output). This wrapper collects the image from the session's own folder instead.
+COLLECT_RULE="Do not save, copy, move, list, search for or view any file, and do not call the tool again: the caller collects the image from your session. End your turn straight after the call."
 
-if [ "${#REFS[@]}" -gt 0 ]; then
-  INSTRUCTION="Use the \$imagegen image generation tool to edit the attached reference image(s). Preserve everything not mentioned in the change description. ${SAVE_RULE} Change to make: ${PROMPT}"
+if [ "$N_REFS" -gt 0 ]; then
+  # The image tool only sees attachments when the call sets this parameter.
+  INSTRUCTION="Use the \$imagegen image generation tool exactly once. This is an edit of the attached image(s), not a new image: pass num_last_images_to_include:${N_REFS} in that call so they reach the tool, and preserve everything the change does not mention. ${COLLECT_RULE} Change to make: ${PROMPT}"
 else
-  INSTRUCTION="Use the \$imagegen image generation tool to generate exactly one image. ${SAVE_RULE} Image description: ${PROMPT}"
+  INSTRUCTION="Use the \$imagegen image generation tool exactly once. ${COLLECT_RULE} Image description: ${PROMPT}"
 fi
 if [ -n "$SIZE" ]; then
   INSTRUCTION="${INSTRUCTION} Desired image size: ${SIZE}."
 fi
 
-CMD=(codex exec -C "$OUTDIR" -s workspace-write --skip-git-repo-check)
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/codex-imagegen.XXXXXX")" || { err "cannot create a temp folder"; exit 1; }
+LOG="$WORK.log"
+
+# A scratch working root and a read-only sandbox: nothing to save into, and the
+# user's project stays untouched.
+CMD=(codex exec --json -C "$WORK" -s read-only --skip-git-repo-check)
 CMD+=("${SERVICE_TIER_ARGS[@]}" -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"")
-for r in "${REFS[@]:-}"; do
-  [ -n "$r" ] || continue
-  case "$r" in /*|[A-Za-z]:[/\\]*) ABS="$r" ;; *) ABS="$(cd "$(dirname "$r")" && pwd)/$(basename "$r")" ;; esac
+for ABS in "${ABS_REFS[@]:-}"; do
+  [ -n "$ABS" ] || continue
   CMD+=(-i "$ABS")
 done
 # `--` is required, not cosmetic: codex's `-i/--image <FILE>...` is variadic, so
@@ -133,86 +157,130 @@ done
 # positional ends up empty (codex then blocks reading it from stdin).
 CMD+=(-- "$INSTRUCTION")
 
-START_EPOCH="$(date +%s)"
+# --- Run Codex and watch this session's own folder ---------------------------
+CODEX_PID=""
 
-TIMEOUT_BIN=""
-if command -v timeout >/dev/null 2>&1; then
-  TIMEOUT_BIN="timeout"
-elif command -v gtimeout >/dev/null 2>&1; then
-  TIMEOUT_BIN="gtimeout"
-fi
-
-# --- Run Codex non-interactively ---------------------------------------------
-if [ -n "$TIMEOUT_BIN" ]; then
-  CODEX_OUT="$("$TIMEOUT_BIN" "$TIMEOUT" "${CMD[@]}" 2>&1)"
-  CODEX_STATUS=$?
-else
-  CODEX_OUT="$("${CMD[@]}" 2>&1)"
-  CODEX_STATUS=$?
-fi
-
-if [ "$CODEX_STATUS" -eq 124 ]; then
-  err "timed out after ${TIMEOUT}s. Raise --timeout or simplify the prompt."
-  exit 124
-fi
-
-# --- Locate the result -------------------------------------------------------
-# Three places to look, in order of preference:
-#   1. exactly where we asked
-#   2. a sibling versioned name — Codex's imagegen skill is instructed not to
-#      overwrite existing assets and may write e.g. out-v2.png / out-edited.png
-#   3. $CODEX_HOME/generated_images/<session-id>/*.png — the built-in image_gen
-#      tool's default destination, nested one level under a session directory
-
-is_png() { [ -s "$1" ] && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = "89504e47" ]; }
-
-if is_png "$OUTPUT"; then
-  printf '%s\n' "$OUTPUT"
-  exit 0
-fi
-
-STEM="${BASENAME%.*}"
-EXT="${BASENAME##*.}"
-FOUND=""
-FOUND_MTIME=0
-for cand in "$OUTDIR/$STEM"-*."$EXT"; do
-  [ -f "$cand" ] || continue
-  is_png "$cand" || continue
-  CM="$(mtime "$cand")"
-  if [ "$CM" -ge "$START_EPOCH" ] && [ "$CM" -gt "$FOUND_MTIME" ]; then
-    FOUND="$cand"
-    FOUND_MTIME="$CM"
+stop_codex() {
+  [ -n "$CODEX_PID" ] || return 0
+  kill -0 "$CODEX_PID" 2>/dev/null || return 0
+  if [ -r "/proc/$CODEX_PID/winpid" ] && command -v taskkill >/dev/null 2>&1; then
+    # Git Bash: a native codex.exe has children that `kill` would leave running.
+    taskkill //PID "$(cat "/proc/$CODEX_PID/winpid")" //T //F >/dev/null 2>&1
+  else
+    command -v pkill >/dev/null 2>&1 && pkill -P "$CODEX_PID" 2>/dev/null
+    kill "$CODEX_PID" 2>/dev/null
   fi
-done
-if [ -n "$FOUND" ]; then
-  err "note: codex wrote '$(basename "$FOUND")' instead of '$BASENAME' (it avoids overwriting); using it."
-  printf '%s\n' "$FOUND"
-  exit 0
-fi
+  wait "$CODEX_PID" 2>/dev/null
+}
 
-GEN_DIR="${CODEX_HOME:-$HOME/.codex}/generated_images"
-if [ -d "$GEN_DIR" ]; then
-  NEWEST=""
-  NEWEST_MTIME=0
-  # Search the session subdirectories and the top level (older layouts).
-  for f in "$GEN_DIR"/*/* "$GEN_DIR"/*; do
-    [ -f "$f" ] || continue
-    is_png "$f" || continue
-    MTIME="$(mtime "$f")"
-    if [ "$MTIME" -ge "$START_EPOCH" ] && [ "$MTIME" -gt "$NEWEST_MTIME" ]; then
-      NEWEST="$f"
-      NEWEST_MTIME="$MTIME"
+cleanup() { stop_codex; rm -rf "$WORK" "$LOG"; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
+GEN_DIR="$CODEX_HOME_DIR/generated_images"
+
+# True once the file is a whole PNG, so a half-written image is never copied.
+is_complete_png() {
+  [ -s "$1" ] \
+    && [ "$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')" = "89504e47" ] \
+    && [ "$(tail -c 8 "$1" | od -An -tx1 | tr -d ' \n')" = "49454e44ae426082" ]
+}
+
+# The oldest complete PNG in one session's folder. Never looks at another session.
+session_image() {
+  local f best="" best_mtime="" m
+  for f in "$GEN_DIR/$1"/*.png; do
+    is_complete_png "$f" || continue
+    m="$(mtime "$f")"
+    if [ -z "$best" ] || [ "$m" -lt "$best_mtime" ]; then
+      best="$f"; best_mtime="$m"
     fi
   done
-  if [ -n "$NEWEST" ]; then
-    cp "$NEWEST" "$OUTPUT"
-    printf '%s\n' "$OUTPUT"
-    exit 0
+  printf '%s' "$best"
+}
+
+# stdin is closed: on an open pipe, `codex exec` waits for more input forever.
+"${CMD[@]}" >"$LOG" 2>&1 </dev/null &
+CODEX_PID=$!
+
+START_EPOCH="$(date +%s)"
+THREAD=""
+IMAGE=""
+EXITED_AT=""
+
+while :; do
+  NOW="$(date +%s)"
+  ELAPSED=$((NOW - START_EPOCH))
+
+  if [ -z "$THREAD" ]; then
+    THREAD="$(sed -n 's/.*"type": *"thread\.started".*"thread_id": *"\([A-Za-z0-9_-]*\)".*/\1/p' "$LOG" | head -n 1)"
   fi
+
+  if [ -n "$THREAD" ]; then
+    IMAGE="$(session_image "$THREAD")"
+    [ -n "$IMAGE" ] && break
+  elif [ "$ELAPSED" -gt "$START_TIMEOUT" ]; then
+    err "no Codex session after ${START_TIMEOUT}s. Last output:"
+    tail -n 5 "$LOG" >&2
+    exit 124
+  fi
+
+  if [ "$ELAPSED" -gt "$TIMEOUT" ]; then
+    err "timed out after ${TIMEOUT}s. Raise --timeout or simplify the prompt."
+    exit 124
+  fi
+
+  if ! kill -0 "$CODEX_PID" 2>/dev/null; then
+    [ -n "$EXITED_AT" ] || EXITED_AT="$NOW"
+    if [ $((NOW - EXITED_AT)) -gt 2 ]; then   # let a last image reach the disk
+      wait "$CODEX_PID"; CODEX_STATUS=$?
+      CODEX_PID=""
+      err "image was not produced (codex exit code: ${CODEX_STATUS})."
+      err "looked in: ${GEN_DIR}/${THREAD:-<no session>}/"
+      err "--- codex output (last 30 lines) ---"
+      tail -n 30 "$LOG" >&2
+      exit 2
+    fi
+  fi
+  sleep 1
+done
+
+stop_codex   # the first image is the result, so a retry cannot spend more quota
+CODEX_PID=""
+
+# --- Check the reference reached the tool ------------------------------------
+# 0 passed | 1 the call left it out | 2 no image call found in the session log
+reference_passed() {
+  local log calls n
+  for log in "$CODEX_HOME_DIR"/sessions/*/*/*/rollout-*"$THREAD".jsonl; do
+    [ -f "$log" ] || continue
+    calls="$(grep -E '"type": *"(custom_tool_call|function_call)"' "$log" | grep -E 'image_gen|imagegen' || true)"
+    [ -n "$calls" ] || continue
+    for n in $(printf '%s\n' "$calls" | grep -oE 'num_last_images_to_include[^0-9]{0,4}[0-9]+' | grep -oE '[0-9]+$' || true); do
+      [ "$n" -ge "$N_REFS" ] && return 0
+    done
+    return 1
+  done
+  return 2
+}
+
+if [ "$N_REFS" -gt 0 ]; then
+  reference_passed
+  case $? in
+    1) err "the image call did not include the reference, so the result ignores it. Nothing saved; retry once. Session image: $IMAGE"
+       exit 3 ;;
+    2) err "note: could not find the image call in the session log; check the reference was used." ;;
+  esac
 fi
 
-err "image was not produced (codex exit code: ${CODEX_STATUS})."
-err "looked in: $OUTPUT , ${OUTDIR}/${STEM}-*.${EXT} , ${GEN_DIR}/*/*"
-err "--- codex output (last 30 lines) ---"
-printf '%s\n' "$CODEX_OUT" | tail -n 30 >&2
-exit 2
+# --- Write the result --------------------------------------------------------
+PARTIAL="$OUTPUT.part.$$"
+if ! cp "$IMAGE" "$PARTIAL" || ! mv -f "$PARTIAL" "$OUTPUT"; then
+  rm -f "$PARTIAL"
+  err "could not write $OUTPUT (the image is at $IMAGE)"
+  exit 2
+fi
+
+printf '%s\n' "$OUTPUT"
+exit 0

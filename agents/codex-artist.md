@@ -25,9 +25,9 @@ Sizes: `1024x1024` (fastest), `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`
 edges multiples of 16, ratio ≤ 3:1, total pixels 655,360–8,294,400. Only pass
 `--size` when the aspect ratio matters.
 
-The wrapper prints the path actually written. Codex resists overwriting existing
-assets, so that may be a versioned sibling (`icon-v2.png`) — always use the
-printed path downstream, never the one you requested.
+The wrapper writes exactly the path you asked for and replaces a file already
+there, but refuses to overwrite its own `--ref`. Exit 3 means the image call left
+out the reference and nothing was saved: retry once.
 
 ## Workflow
 

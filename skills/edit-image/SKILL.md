@@ -47,9 +47,9 @@ For a series of edits, chain them one at a time (each output becomes the next
 ## Rules
 
 1. **Never overwrite the source.** Write to a new file; offer to replace only after
-   the user has seen the result. Note that Codex itself resists overwriting — the
-   wrapper prints the path actually written, which may be a versioned sibling like
-   `out-v2.png`. Use the printed path, not the one you asked for.
+   the user has seen the result. The wrapper refuses to overwrite its own `--ref`,
+   but it does replace any other file at the output path. Exit 3 means the image
+   call left out the reference and nothing was saved: retry once.
 2. **Verify by viewing.** Read the output PNG with the Read tool and compare
    against the request before reporting done. Regenerate with a sharper prompt if
    the model drifted — at most 2 retries.

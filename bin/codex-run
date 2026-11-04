@@ -129,11 +129,13 @@ elif command -v gtimeout >/dev/null 2>&1; then
   TIMEOUT_BIN="gtimeout"
 fi
 
+# stdin is closed: on an open pipe, `codex exec` waits for more input forever. The
+# task is always passed as an argument; `-` has already read it into $TASK above.
 if [ -n "$TIMEOUT_BIN" ]; then
-  "$TIMEOUT_BIN" "$TIMEOUT" "${CMD[@]}" >"$LOG_FILE" 2>&1
+  "$TIMEOUT_BIN" "$TIMEOUT" "${CMD[@]}" >"$LOG_FILE" 2>&1 </dev/null
   STATUS=$?
 else
-  "${CMD[@]}" >"$LOG_FILE" 2>&1
+  "${CMD[@]}" >"$LOG_FILE" 2>&1 </dev/null
   STATUS=$?
 fi
 
