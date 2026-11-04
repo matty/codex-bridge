@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.1
+
+Stuck and swapped image runs, found generating a real batch on codex-cli 0.164.0. The
+causes come from the Codex session logs.
+
+- **Runs hung until the timeout.** `codex exec` waits for more input on an open stdin
+  pipe. Both wrappers now close stdin.
+- **Another run's picture saved under the wrong name.** Told to save, Codex searched the
+  shared `generated_images` folder, took the newest file and copied it. `codex-imagegen`
+  no longer lets Codex save: it runs in a scratch folder with a read-only sandbox and
+  collects the image from `generated_images/<its own session>/`. The wrapper's own
+  newest-PNG fallback and versioned-sibling search are gone.
+- **Up to 7 images for one output.** Codex generated again when it could not work out how
+  to save. The wrapper now stops it at the first complete image.
+- **`--ref` silently ignored.** The image tool sees attachments only when the call sets
+  `num_last_images_to_include`. The instruction now names it, and the wrapper reads the
+  session log: exit 3, with nothing saved, if the call left it out.
+- **A failed run could report an old file as new.** The output is now written only after
+  the image is found, and the wrapper refuses to overwrite its own `--ref`.
+- New `--start-timeout` (default 60 s) stops a run that never opens a session.
+- `test/smoke.sh` covers all of this with a fake `codex`.
+
 ## 1.2.0
 
 Fork: [matty/codex-bridge](https://github.com/matty/codex-bridge).

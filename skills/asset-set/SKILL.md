@@ -84,9 +84,8 @@ whitespace so copy can sit alongside.
    multiples of 16, ratio ≤ 3:1, total pixels 655,360–8,294,400. Every standard
    icon size (16, 32, 180, 192, 512) is below that floor — which is exactly why
    you generate one large master and resample.
-6. **Use the path the wrapper prints.** Codex avoids overwriting existing files and
-   may write a versioned sibling (`icon-v2.png`); the wrapper detects that and
-   reports the real path.
+6. **Pick each output path deliberately.** The wrapper writes exactly that path and
+   replaces a file already there.
 
 For sets larger than about four images, hand the whole brief to the `codex-artist`
 subagent so the generation loop stays out of the main conversation.

@@ -86,9 +86,9 @@ Only mention that route if chroma-keying fails or the subject is genuinely hard
   3–5x a text turn). Don't fire off batches without saying how many first.
 - If the wrapper reports "codex is not logged in", tell the user to run
   `codex login` in a terminal — don't try to work around auth yourself.
-- Codex avoids overwriting existing assets. The wrapper explicitly authorizes
-  replacement and detects a versioned sibling (`out-v2.png`) if Codex writes one
-  anyway — trust the path the wrapper prints, not the one you asked for.
+- The wrapper writes exactly the path you asked for and replaces a file already
+  there. Codex itself saves nothing; the wrapper collects the image from the
+  session's own folder and stops Codex at the first image.
 
 ## Related
 
